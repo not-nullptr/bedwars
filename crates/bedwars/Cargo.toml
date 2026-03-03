@@ -1,0 +1,11 @@
+[package]
+name = "bedwars"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+protocol = { path = "../protocol" }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+color-eyre = "0.6.5"
