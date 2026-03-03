@@ -1,1 +1,7 @@
 /target
+/server
+/failure-178.bin
+/registry_order.txt
+/registry.json
+/tags.json
+config.toml

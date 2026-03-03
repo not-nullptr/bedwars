@@ -10,4 +10,10 @@ pub enum RwError {
 
     #[error("invalid enum discriminant: {0}")]
     InvalidEnumDiscriminant(u32),
+
+    #[error("serde JSON error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+
+    #[error("NBT error: {0}")]
+    Nbt(#[from] fastnbt::error::Error),
 }

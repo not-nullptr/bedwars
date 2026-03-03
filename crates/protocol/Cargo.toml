@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fastnbt = "2.6.0"
 protocol_derive = { path = "../protocol_derive" }
+serde = "1.0.228"
+serde_json = "1.0.149"
 thiserror = "2.0.18"
 tokio.workspace = true
+tracing = "0.1.44"
+uuid.workspace = true

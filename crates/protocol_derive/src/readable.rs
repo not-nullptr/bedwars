@@ -12,8 +12,9 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
         Repr::Struct(s) => {
             let field_reads = s.data.fields.iter().map(|field| {
                 let name = &field.ident;
+                let ty = &field.ty;
                 quote::quote! {
-                    #name: Readable::read_from(reader).await?,
+                    #name: <#ty as Readable>::read_from(reader).await?,
                 }
             });
 
@@ -84,9 +85,9 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
                                 reader: &mut R,
                             ) -> Result<Self, crate::RwError> {
                                 let num = #ty::read_from(reader).await?;
-                                let res = match num {
+                                let res = match num.into() {
                                     #(#read_match_arms)*
-                                    _ => Err(crate::RwError::InvalidEnumDiscriminant(num.into())),
+                                    _ => Err(crate::RwError::InvalidEnumDiscriminant(u32::from(num))),
                                 }?;
 
                                 Ok(Self::from(res))
@@ -94,7 +95,71 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
                         }
                     })
                 }
-                _ => todo!(),
+
+                NetRepr::Union(u) => {
+                    // union means we read:
+                    // - length (VarInt)
+                    // - discriminant (VarInt)
+                    // - fields (based on discriminant)
+
+                    // each field must be like Variant(Type)
+
+                    let mut read_arms = Vec::new();
+
+                    for variant in &e.data.variants {
+                        if variant.fields.len() != 1 {
+                            return Err(syn::Error::new_spanned(
+                                variant,
+                                "Enum variants must have exactly one field when using #[net_repr(union)]",
+                            ));
+                        }
+
+                        // must be like Variant(Type)
+                        let field = &variant.fields.iter().next().unwrap();
+                        if field.ident.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                field,
+                                "Enum variant fields must be unnamed when using #[net_repr(union)]",
+                            ));
+                        }
+
+                        let ty = &field.ty;
+                        let ident = &variant.ident;
+                        let discriminant = u.get(ident).ok_or_else(|| syn::Error::new_spanned(
+                            variant,
+                            "All enum variants must have a #[discriminant(value)] attribute when using #[net_repr(union)]",
+                        ))?;
+
+                        let read_arm = quote::quote! {
+                            #discriminant => {
+                                let value = <#ty as Readable>::read_from(&mut reader).await?;
+                                Ok(Self::#ident(value))
+                            }
+                        };
+
+                        read_arms.push(read_arm);
+                    }
+
+                    let name = &ast.ident;
+                    Ok(quote::quote! {
+                        impl crate::Readable for #name {
+                            async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                                reader: &mut R,
+                            ) -> Result<Self, crate::RwError> {
+                                use crate::Readable;
+
+                                let len = crate::varint::VarInt::read_from(reader).await?;
+                                let mut reader = ::tokio::io::AsyncReadExt::take(reader, len.value() as u64);
+                                let discriminant = crate::varint::VarInt::read_from(&mut reader).await?;
+
+                                match discriminant.value() {
+                                    #(#read_arms)*
+                                    _ => Err(crate::RwError::InvalidEnumDiscriminant(discriminant.value())),
+                                }
+                            }
+                        }
+                    })
+                }
             }
         }
     }
