@@ -1,12 +1,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VarInt(u32);
+pub struct VarInt(i32);
 
 impl VarInt {
-    pub const fn new(value: u32) -> Self {
+    pub const fn new(value: i32) -> Self {
         Self(value)
     }
 
-    pub const fn value(self) -> u32 {
+    pub const fn value(self) -> i32 {
         self.0
     }
 
@@ -24,13 +24,13 @@ impl VarInt {
     }
 }
 
-impl From<u32> for VarInt {
-    fn from(value: u32) -> Self {
+impl From<i32> for VarInt {
+    fn from(value: i32) -> Self {
         Self(value)
     }
 }
 
-impl From<VarInt> for u32 {
+impl From<VarInt> for i32 {
     fn from(value: VarInt) -> Self {
         value.0
     }

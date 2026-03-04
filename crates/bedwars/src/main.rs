@@ -21,7 +21,11 @@ async fn main() -> color_eyre::Result<()> {
         .init();
 
     let registry = Arc::new(
-        Registry::discover("/home/nullptr/bedwars/server/META-INF/versions/1.21.11/data").await?,
+        Registry::discover(
+            "/home/nullptr/bedwars/server/META-INF/versions/1.21.11/data",
+            registry::NECESSARY_REGISTRIES,
+        )
+        .await?,
     );
 
     let config = Arc::new(Config::load("config.toml")?);

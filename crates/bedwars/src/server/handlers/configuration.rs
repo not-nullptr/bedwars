@@ -39,50 +39,20 @@ impl<Io: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> ConfigurationHa
     }
 
     pub async fn handle(mut self) -> color_eyre::Result<()> {
-        let mut ident_to_idx = HashMap::new();
         let mut update_tags = Vec::new();
 
-        for data in self.registry.registry_data() {
-            static ALLOWED: LazyLock<HashSet<Identifier>> = LazyLock::new(|| {
-                HashSet::from([
-                    Identifier::new("banner_pattern"),
-                    Identifier::new("chat_type"),
-                    Identifier::new("damage_type"),
-                    Identifier::new("dimension_type"),
-                    Identifier::new("instrument"),
-                    Identifier::new("jukebox_song"),
-                    Identifier::new("painting_variant"),
-                    Identifier::new("test_environment"),
-                    Identifier::new("test_instance"),
-                    Identifier::new("timeline"),
-                    Identifier::new("trim_material"),
-                    Identifier::new("trim_pattern"),
-                    Identifier::new("worldgen/biome"),
-                    Identifier::new("cat_variant"),
-                    Identifier::new("chicken_variant"),
-                    Identifier::new("cow_variant"),
-                    Identifier::new("frog_variant"),
-                    Identifier::new("pig_variant"),
-                    Identifier::new("wolf_variant"),
-                    Identifier::new("wolf_sound_variant"),
-                    Identifier::new("zombie_nautilus_variant"),
-                ])
-            });
-
-            if !ALLOWED.contains(&data.registry_id) {
-                continue;
-            }
-
+        // TODO: completely unnecessary cloning
+        for data in self.registry.sorted_registry().iter() {
             let registry_data = ClientboundConfigurationMessage::RegistryData(RegistryData {
-                registry_id: data.registry_id.clone(),
+                registry_id: (*data.registry_id).clone(),
                 entries: data
                     .entries
                     .iter()
-                    .map(|e| {
-                        ident_to_idx.insert(e.entry_id.clone(), ident_to_idx.len());
+                    .map(|entry| {
+                        // ident_to_idx.insert(entry.entry_id.clone(), ident_to_idx.len());
                         RegistryEntry {
-                            entry_id: e.entry_id.clone(),
-                            nbt: e.nbt.as_ref().map(|n| n.clone()),
+                            entry_id: (*entry.entry_id).clone(),
+                            nbt: entry.nbt.clone().map(|v| (*v).clone()),
                         }
                     })
                     .collect(),
@@ -94,16 +64,22 @@ impl<Io: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> ConfigurationHa
             }
 
             update_tags.push(TaggedRegistry {
-                registry: data.registry_id.clone(),
+                registry: (*data.registry_id).clone(),
                 tags: self
                     .registry
                     .tag_map()
                     .iter()
                     .map(|(k, v)| Tag {
-                        tag_name: k.clone(),
+                        tag_name: (**k).clone(),
                         entries: v
                             .iter()
-                            .filter_map(|i| ident_to_idx.get(i).map(|idx| VarInt::new(*idx as u32)))
+                            .filter_map(|i| {
+                                self.registry
+                                    .reverse_sorted_registry()
+                                    .get(k)
+                                    .and_then(|m| m.get(i))
+                                    .map(|idx| VarInt::new(*idx as i32))
+                            })
                             .collect(),
                     })
                     .collect(),

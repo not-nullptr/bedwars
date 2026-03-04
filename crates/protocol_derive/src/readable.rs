@@ -9,28 +9,109 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
     let repr = Repr::from_ast(&ast)?;
 
     match repr {
-        Repr::Struct(s) => {
-            let field_reads = s.data.fields.iter().map(|field| {
-                let name = &field.ident;
-                let ty = &field.ty;
-                quote::quote! {
-                    #name: <#ty as Readable>::read_from(reader).await?,
-                }
-            });
-
-            let name = &ast.ident;
-            Ok(quote::quote! {
-                impl crate::Readable for #name {
-                    async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
-                        reader: &mut R,
-                    ) -> Result<Self, crate::RwError> {
-                        Ok(Self {
-                            #(#field_reads)*
-                        })
+        Repr::Struct(s) => match &s.data.fields {
+            syn::Fields::Named(fields) => {
+                let name = &ast.ident;
+                let field_reads = fields.named.iter().map(|field| {
+                    let field_name = &field.ident;
+                    let ty = &field.ty;
+                    quote::quote! {
+                        #field_name: <#ty as crate::Readable>::read_from(reader).await?,
                     }
+                });
+
+                Ok(quote::quote! {
+                    impl crate::Readable for #name {
+                        async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                            reader: &mut R,
+                        ) -> Result<Self, crate::RwError> {
+                            // Struct named fields
+                            Ok(Self {
+                                #(#field_reads)*
+                            })
+                        }
+                    }
+                })
+            }
+            syn::Fields::Unnamed(fields) => {
+                let name = &ast.ident;
+                // Check if it's a bitflags struct by seeing if it has exactly 1 field
+                // with the `bitflags` inner pattern: `<Name as ...PublicFlags>::Internal`
+                if fields.unnamed.len() == 1 {
+                    let first = &fields.unnamed[0];
+                    if let syn::Type::Path(p) = &first.ty {
+                        if p.qself.is_some() {
+                            if p.path.segments.last().map(|s| s.ident.to_string())
+                                == Some("Internal".to_string())
+                            {
+                                // Bitflags
+                                return Ok(quote::quote! {
+                                    impl crate::Readable for #name {
+                                        async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                                            reader: &mut R,
+                                        ) -> Result<Self, crate::RwError> {
+                                            let bits = <<Self as bitflags::Flags>::Bits as crate::Readable>::read_from(reader).await?;
+                                            Ok(Self::from_bits_retain(bits))
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+
+                    // Normal tuple struct
+                    let field_reads = fields.unnamed.iter().map(|field| {
+                        let ty = &field.ty;
+                        quote::quote! {
+                            <#ty as crate::Readable>::read_from(reader).await?,
+                        }
+                    });
+
+                    Ok(quote::quote! {
+                        impl crate::Readable for #name {
+                            async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                                reader: &mut R,
+                            ) -> Result<Self, crate::RwError> {
+                                Ok(Self(
+                                    #(#field_reads)*
+                                ))
+                            }
+                        }
+                    })
+                } else {
+                    let field_reads = fields.unnamed.iter().map(|field| {
+                        let ty = &field.ty;
+                        quote::quote! {
+                            <#ty as crate::Readable>::read_from(reader).await?,
+                        }
+                    });
+
+                    Ok(quote::quote! {
+                        impl crate::Readable for #name {
+                            async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                                reader: &mut R,
+                            ) -> Result<Self, crate::RwError> {
+                                Ok(Self(
+                                    #(#field_reads)*
+                                ))
+                            }
+                        }
+                    })
                 }
-            })
-        }
+            }
+            syn::Fields::Unit => {
+                let name = &ast.ident;
+                Ok(quote::quote! {
+                    impl crate::Readable for #name {
+                        async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(
+                            _reader: &mut R,
+                        ) -> Result<Self, crate::RwError> {
+                            Ok(Self)
+                        }
+                    }
+                })
+            }
+        },
 
         Repr::Enum(e) => {
             match e.net_repr {
@@ -47,7 +128,7 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
                         let value = match &discriminant.1 {
                             syn::Expr::Lit(expr) => {
                                 if let syn::Lit::Int(lit) = &expr.lit {
-                                    lit.base10_parse::<u32>().map_err(|_| {
+                                    lit.base10_parse::<i32>().map_err(|_| {
                                         syn::Error::new_spanned(
                                             expr,
                                             "Discriminant values must be integers",
@@ -87,7 +168,7 @@ pub fn macro_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenS
                                 let num = #ty::read_from(reader).await?;
                                 let res = match num.into() {
                                     #(#read_match_arms)*
-                                    _ => Err(crate::RwError::InvalidEnumDiscriminant(u32::from(num))),
+                                    _ => Err(crate::RwError::InvalidEnumDiscriminant(i32::from(num))),
                                 }?;
 
                                 Ok(Self::from(res))

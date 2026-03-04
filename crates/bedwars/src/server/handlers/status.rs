@@ -40,7 +40,7 @@ impl<Io: AsyncRead + AsyncWrite + Unpin> StatusHandler<Io> {
                         json_response: Json(StatusData {
                             version: VersionInfo {
                                 name: "Bedwars".to_string(),
-                                protocol: self.handshake.protocol_version.into(),
+                                protocol: i32::from(self.handshake.protocol_version) as u32,
                             },
                             players: PlayerInfo {
                                 online: 0,

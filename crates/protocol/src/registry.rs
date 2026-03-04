@@ -3,10 +3,7 @@ use crate::{
     messages::configuration::{RegistryData, RegistryEntry},
 };
 use fastnbt::{IntArray, LongArray};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::Path};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -25,19 +22,26 @@ pub enum RegistryDataError {
 }
 
 pub async fn registry_data<P: AsRef<Path>>(
-    path: P,
+    data_dir: P,
+    identifiers: &[Identifier],
 ) -> Result<Vec<RegistryData>, RegistryDataError> {
-    let path = path.as_ref();
-    let mut dirs = tokio::fs::read_dir(path).await?;
+    let path = data_dir.as_ref();
+    // let mut dirs = tokio::fs::read_dir(path).await?;
     let mut handles = Vec::new();
 
-    while let Some(entry) = dirs.next_entry().await? {
-        // if it's not a dir, skip it
-        if !entry.file_type().await?.is_dir() {
-            continue;
-        }
+    // while let Some(entry) = dirs.next_entry().await? {
+    //     // if it's not a dir, skip it
+    //     if !entry.file_type().await?.is_dir() {
+    //         continue;
+    //     }
 
-        handles.push(tokio::spawn(read_registry(entry)));
+    //     handles.push(tokio::spawn(read_registry(entry)));
+    // }
+
+    for ident in identifiers {
+        let ident = ident.clone();
+        let path = path.to_path_buf();
+        handles.push(tokio::spawn(read_registry(path, ident)));
     }
 
     let mut results = Vec::new();
@@ -45,117 +49,61 @@ pub async fn registry_data<P: AsRef<Path>>(
         results.push(handle.await??);
     }
 
-    Ok(results.into_iter().flatten().collect())
+    Ok(results)
 }
 
-async fn read_registry(entry: tokio::fs::DirEntry) -> Result<Vec<RegistryData>, RegistryDataError> {
-    // the identifier namespace is the dir name
-    let namespace = entry.file_name().to_string_lossy().to_string();
-    // read all dirs in that directory
-    let mut dirs = tokio::fs::read_dir(entry.path()).await?;
-    let mut handles: Vec<
-        tokio::task::JoinHandle<Result<HashMap<Identifier, Vec<RegistryEntry>>, RegistryDataError>>,
-    > = Vec::new();
-    while let Some(entry) = dirs.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
+async fn read_registry<P: AsRef<Path>>(
+    path: P,
+    identifier: Identifier,
+) -> Result<RegistryData, RegistryDataError> {
+    let path = path
+        .as_ref()
+        .join(&*identifier.namespace)
+        .join(&*identifier.value);
+
+    tracing::info!(path = %path.display(), "reading registry data for identifier");
+
+    let mut entries = tokio::fs::read_dir(path).await?;
+
+    let mut data = RegistryData {
+        registry_id: identifier.clone(),
+        entries: Vec::new(),
+    };
+
+    while let Some(file) = entries.next_entry().await? {
+        let kind = file.file_type().await?;
+        if kind.is_dir() {
+            tracing::error!("invalid base pack!");
             continue;
         }
 
-        let namespace = namespace.clone();
-
-        handles.push(tokio::spawn(async move {
-            let mut out = HashMap::new();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name == "tags" {
-                return Ok(HashMap::new());
-            }
-
-            recurse_registry(&mut out, entry.path(), &namespace, String::new(), true).await?;
-            Ok(out)
-        }));
-    }
-
-    let mut results = Vec::with_capacity(handles.len());
-    for handle in handles {
-        results.push(handle.await??);
-    }
-
-    Ok(results
-        .into_iter()
-        .flatten()
-        .map(|(k, v)| RegistryData {
-            registry_id: k,
-            entries: v,
-        })
-        .collect())
-}
-
-async fn recurse_registry(
-    out: &mut HashMap<Identifier, Vec<RegistryEntry>>,
-    path: PathBuf,
-    namespace: &str,
-    mut current_value: String,
-    initial: bool,
-) -> Result<(), RegistryDataError> {
-    if !initial {
-        current_value.push('/');
-    }
-    current_value.push_str(&path.file_name().unwrap().to_string_lossy());
-
-    let mut dirs = tokio::fs::read_dir(&path).await?;
-    while let Some(entry) = dirs.next_entry().await? {
-        let file_type = entry.file_type().await?;
-        if file_type.is_dir() {
-            Box::pin(recurse_registry(
-                out,
-                entry.path(),
-                namespace,
-                current_value.clone(),
-                false,
-            ))
-            .await?;
-        } else if file_type.is_file() {
-            // filename stem (entry id)
-            let file_stem = PathBuf::from(entry.file_name())
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            let file_stem = PathBuf::from(entry.file_name())
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            let parts: Vec<&str> = current_value.split('/').collect();
-            let registry_name = parts[0]; // e.g. "jukebox_song" or "advancement"
-            let registry_id =
-                Identifier::with_namespace(namespace.to_string(), registry_name.to_string());
-
-            // Build entry path: remaining dir components + file stem
-            let mut entry_parts: Vec<&str> = parts[1..].to_vec();
-            entry_parts.push(&file_stem);
-            let entry_path = entry_parts.join("/");
-            let entry_id = Identifier::with_namespace(namespace.to_string(), entry_path.clone());
-
-            let current = out.entry(registry_id).or_insert_with(Vec::new);
-
-            if let Some(nbt) = get_nbt(entry.path()).await.ok() {
-                current.push(RegistryEntry {
-                    entry_id,
-                    nbt: Some(nbt),
-                });
-            }
-        } else {
-            tracing::warn!(
-                path = %entry.path().display(),
-                "unexpected file type in registry directory, skipping"
-            );
+        let path = file.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            tracing::error!(path = %path.display(), "skipping non-json file in registry directory");
+            continue;
         }
+
+        let file_stem = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+
+        let nbt = match get_nbt(&path).await {
+            Ok(nbt) => nbt,
+            Err(e) => {
+                tracing::error!(%e, path = %path.display(), "failed to convert registry entry json to nbt");
+                continue;
+            }
+        };
+
+        data.entries.push(RegistryEntry {
+            entry_id: Identifier::with_namespace(identifier.namespace.clone(), file_stem),
+            nbt: Some(nbt),
+        });
     }
 
-    Ok(())
+    Ok(data)
 }
 
 async fn get_nbt<P>(path: P) -> Result<fastnbt::Value, RegistryDataError>

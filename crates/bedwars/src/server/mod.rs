@@ -10,10 +10,14 @@ use crate::{
     server::{connection::Connection, msg::ServerMessage},
 };
 use protocol::{
-    Gamemode, Identifier, Writable,
+    BitSet, Chunk, ChunkData, ChunkSection, Gamemode, HasData, HasDataKind, Identifier,
+    PaletteFormat, PaletteFormatKind, PalettedContainer, TeleportFlags, VarInt, Writable,
     messages::{
         configuration::{RegistryData, RegistryEntry},
-        play::{ClientboundPlayMessage, Login},
+        play::{
+            ChunkDataAndUpdateLight, ClientboundPlayMessage, GameEvent, LightData, Login,
+            SetCenterChunk, SynchronizePlayerPosition,
+        },
     },
 };
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -93,6 +97,14 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
         let id = entity.id;
         self.entities.insert(id, entity);
 
+        let dimension = self
+            .registry
+            .reverse_sorted_registry()
+            .get(&Identifier::const_new("dimension_type"))
+            .and_then(|m| m.get(&Identifier::const_new("overworld")))
+            .copied()
+            .unwrap();
+
         let login = ClientboundPlayMessage::Login(Login {
             entity_id: id,
             is_hardcore: false,
@@ -103,7 +115,7 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
             reduced_debug_info: false,
             enable_respawn_screen: true,
             do_limited_crafting: false,
-            dimension_type: 0.into(),
+            dimension_type: VarInt::new(dimension as i32),
             dimension_name: Identifier::with_namespace("minecraft", "overworld"),
             hashed_seed: 0,
             game_mode: Gamemode::Creative,
@@ -117,6 +129,88 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
         });
 
         login.write_into(&mut conn.io).await?;
+
+        let wait_chunks = ClientboundPlayMessage::GameEvent(GameEvent::StartWaitingForLevelChunks);
+        wait_chunks.write_into(&mut conn.io).await?;
+
+        let sync = ClientboundPlayMessage::SynchronizePlayerPosition(SynchronizePlayerPosition {
+            teleport_id: VarInt::new(1),
+            x: 0.0,
+            y: 64.0,
+            z: 0.0,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            velocity_z: 0.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            flags: TeleportFlags::empty(),
+        });
+
+        sync.write_into(&mut conn.io).await?;
+
+        let chunk_center = ClientboundPlayMessage::SetCenterChunk(SetCenterChunk {
+            chunk_x: VarInt::new(0),
+            chunk_z: VarInt::new(0),
+        });
+
+        chunk_center.write_into(&mut conn.io).await?;
+
+        for x in -1..=1 {
+            for y in -1..=1 {
+                let chunks =
+                    ClientboundPlayMessage::ChunkDataAndUpdateLight(ChunkDataAndUpdateLight {
+                        chunk_x: x,
+                        chunk_z: y,
+                        data: ChunkData {
+                            block_entities: vec![],
+                            heightmaps: vec![],
+                            data: Chunk {
+                                sections: vec![
+                                    ChunkSection {
+                                        block_count: 0,
+                                        block_states: PalettedContainer::new(
+                                            PaletteFormatKind::Blocks,
+                                            PaletteFormat::SingleValue(VarInt::new(0))
+                                        ),
+                                        biomes: PalettedContainer::new(
+                                            PaletteFormatKind::Biomes,
+                                            PaletteFormat::SingleValue(VarInt::new(0))
+                                        ),
+                                    };
+                                    24
+                                ],
+                            },
+                        },
+                        light: LightData {
+                            block_light_arrays: vec![],
+                            block_light_mask: BitSet::empty(),
+                            empty_block_light_mask: BitSet::empty(),
+                            empty_sky_light_mask: BitSet::empty(),
+                            sky_light_arrays: vec![],
+                            sky_light_mask: BitSet::empty(),
+                        },
+                    });
+
+                chunks.write_into(&mut conn.io).await?;
+            }
+        }
+
+        // let mut buf = Vec::new();
+        // chunks.write_into(&mut buf).await?;
+        // use std::io::Write;
+        // std::fs::File::options()
+        //     .create(true)
+        //     .truncate(true)
+        //     .write(true)
+        //     .open("chunk_data.bin")?
+        //     .write_all(
+        //         buf.into_iter()
+        //             .map(|b| format!("0x{b:02X}"))
+        //             .collect::<Vec<_>>()
+        //             .join(" ")
+        //             .as_bytes(),
+        //     )?;
+
         self.clients.push(conn);
 
         Ok(())

@@ -59,11 +59,11 @@ impl Readable for VarInt {
     async fn read_from<R: ::tokio::io::AsyncRead + Unpin>(
         reader: &mut R,
     ) -> Result<Self, crate::RwError> {
-        let mut num = 0u32;
+        let mut num = 0;
         let mut shift = 0;
         loop {
             let byte = u8::read_from(reader).await?;
-            num |= ((byte & SEGMENT_BITS) as u32) << shift;
+            num |= ((byte & SEGMENT_BITS) as i32) << shift;
             if byte & CONTINUE_BIT == 0 {
                 break;
             }
@@ -80,7 +80,7 @@ impl Writable for VarInt {
     ) -> Result<(), crate::RwError> {
         let mut num = self.value();
         loop {
-            let mut byte = (num & SEGMENT_BITS as u32) as u8;
+            let mut byte = (num & SEGMENT_BITS as i32) as u8;
             num >>= 7;
             if num != 0 {
                 byte |= CONTINUE_BIT;
@@ -130,7 +130,7 @@ impl<T: Writable> Writable for Vec<T> {
         &self,
         writer: &mut W,
     ) -> Result<(), crate::RwError> {
-        VarInt::from(self.len() as u32).write_into(writer).await?;
+        VarInt::from(self.len() as i32).write_into(writer).await?;
         for item in self {
             item.write_into(writer).await?;
         }
@@ -170,7 +170,7 @@ impl<'a, T: Writable> Writable for &'a [T] {
         &self,
         writer: &mut W,
     ) -> Result<(), crate::RwError> {
-        VarInt::from(self.len() as u32).write_into(writer).await?;
+        VarInt::from(self.len() as i32).write_into(writer).await?;
         for item in *self {
             item.write_into(writer).await?;
         }

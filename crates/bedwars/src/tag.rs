@@ -57,7 +57,7 @@ fn collect_tags(
             entry_parts.push(file_stem);
             let entry_path = entry_parts.join("/");
 
-            let id = Identifier::with_namespace(namespace, &entry_path);
+            let id = Identifier::with_namespace(namespace.to_owned(), entry_path);
 
             let s = fs::read_to_string(&p)?;
             let values = match serde_json::from_str::<Tag>(&s) {
@@ -69,9 +69,15 @@ fn collect_tags(
                             MaybeIdentifier::Reference(v[1..].to_string())
                         } else if v.contains(':') {
                             let (ns, name) = v.split_once(':').unwrap();
-                            MaybeIdentifier::Identifier(Identifier::with_namespace(ns, name))
+                            MaybeIdentifier::Identifier(Identifier::with_namespace(
+                                ns.to_owned(),
+                                name.to_owned(),
+                            ))
                         } else {
-                            MaybeIdentifier::Identifier(Identifier::with_namespace("minecraft", &v))
+                            MaybeIdentifier::Identifier(Identifier::with_namespace(
+                                "minecraft",
+                                v.to_owned(),
+                            ))
                         }
                     })
                     .collect(),
@@ -87,11 +93,14 @@ fn collect_tags(
                                 MaybeIdentifier::Reference(v[1..].to_string())
                             } else if v.contains(':') {
                                 let (ns, name) = v.split_once(':').unwrap();
-                                MaybeIdentifier::Identifier(Identifier::with_namespace(ns, name))
+                                MaybeIdentifier::Identifier(Identifier::with_namespace(
+                                    ns.to_owned(),
+                                    name.to_owned(),
+                                ))
                             } else {
                                 MaybeIdentifier::Identifier(Identifier::with_namespace(
                                     "minecraft",
-                                    &v,
+                                    v,
                                 ))
                             }
                         })
@@ -137,9 +146,9 @@ fn expand_all(
                             &{
                                 if rest.contains(':') {
                                     let (ns, name) = rest.split_once(':').unwrap();
-                                    Identifier::with_namespace(ns, name)
+                                    Identifier::with_namespace(ns.to_owned(), name.to_owned())
                                 } else {
-                                    Identifier::with_namespace("minecraft", rest)
+                                    Identifier::with_namespace("minecraft", rest.clone())
                                 }
                             },
                             raw,

@@ -9,7 +9,7 @@ pub enum RwError {
     Utf8(#[from] std::string::FromUtf8Error),
 
     #[error("invalid enum discriminant: {0}")]
-    InvalidEnumDiscriminant(u32),
+    InvalidEnumDiscriminant(i32),
 
     #[error("serde JSON error: {0}")]
     SerdeJson(#[from] serde_json::Error),
