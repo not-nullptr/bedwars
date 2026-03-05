@@ -11,21 +11,107 @@ impl PalettedContainer {
         Self { kind, palette }
     }
 
-    pub fn set_data(&mut self, idx: usize, value: u16) {
+    pub fn set(&mut self, idx: usize, value: u16) {
         let bits_per_entry = self.palette.bits_per_entry(self.kind);
         match &mut self.palette {
             PaletteFormat::SingleValue(_) => panic!("Cannot set data on a single value palette"),
             PaletteFormat::HasData(d) => {
-                let entries_per_long = 64 / bits_per_entry as usize;
-                let long_index = idx / entries_per_long;
-                let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
-                let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
-                if long_index >= d.data.len() {
-                    panic!("index out of bounds for palette data array");
+                // let entries_per_long = 64 / bits_per_entry as usize;
+                // let long_index = idx / entries_per_long;
+                // let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                // let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                // if long_index >= d.data.len() {
+                //     panic!("index out of bounds for palette data array");
+                // }
+                // d.data[long_index] &= !entry_mask;
+                // d.data[long_index] |= (value as u64) << bit_index;
+
+                match &mut d.kind {
+                    HasDataKind::Direct => {
+                        let entries_per_long = 64 / bits_per_entry as usize;
+                        let long_index = idx / entries_per_long;
+                        let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                        let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                        if long_index >= d.data.len() {
+                            panic!("index out of bounds for palette data array");
+                        }
+                        d.data[long_index] &= !entry_mask;
+                        d.data[long_index] |= (value as u64) << bit_index;
+                    }
+
+                    HasDataKind::Indirect(_) => {
+                        todo!("setting data on an indirect palette is not yet implemented")
+                    }
                 }
-                d.data[long_index] &= !entry_mask;
-                d.data[long_index] |= (value as u64) << bit_index;
             }
+        }
+    }
+
+    pub fn palette_value(&self, idx: usize) -> u16 {
+        let bits_per_entry = self.palette.bits_per_entry(self.kind);
+        match &self.palette {
+            PaletteFormat::SingleValue(value) => value.value() as u16,
+            PaletteFormat::HasData(d) => match &d.kind {
+                HasDataKind::Direct => {
+                    let entries_per_long = 64 / bits_per_entry as usize;
+                    let long_index = idx / entries_per_long;
+                    let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                    let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                    if long_index >= d.data.len() {
+                        panic!("index out of bounds for palette data array");
+                    }
+                    ((d.data[long_index] & entry_mask) >> bit_index) as u16
+                }
+
+                HasDataKind::Indirect(indirect) => {
+                    let entries_per_long = 64 / bits_per_entry as usize;
+                    let long_index = idx / entries_per_long;
+                    let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                    let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                    if long_index >= d.data.len() {
+                        panic!("index out of bounds for palette data array");
+                    }
+                    let palette_index = ((d.data[long_index] & entry_mask) >> bit_index) as usize;
+                    if palette_index >= indirect.palette.len() {
+                        panic!("index out of bounds for indirect palette");
+                    }
+                    indirect.palette[palette_index].value() as u16
+                }
+            },
+        }
+    }
+
+    pub fn palette_value_extend(&mut self, idx: usize) -> u16 {
+        let bits_per_entry = self.palette.bits_per_entry(self.kind);
+        match &mut self.palette {
+            PaletteFormat::SingleValue(value) => value.value() as u16,
+            PaletteFormat::HasData(d) => match &d.kind {
+                HasDataKind::Direct => {
+                    let entries_per_long = 64 / bits_per_entry as usize;
+                    let long_index = idx / entries_per_long;
+                    let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                    let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                    if long_index >= d.data.len() {
+                        d.data.resize(long_index + 1, 0);
+                    }
+                    ((d.data[long_index] & entry_mask) >> bit_index) as u16
+                }
+
+                HasDataKind::Indirect(indirect) => {
+                    let entries_per_long = 64 / bits_per_entry as usize;
+                    let long_index = idx / entries_per_long;
+                    let bit_index = (idx % entries_per_long) * bits_per_entry as usize;
+                    let entry_mask = ((1u64 << bits_per_entry) - 1) << bit_index;
+                    if long_index >= d.data.len() {
+                        panic!("index out of bounds for palette data array");
+                    }
+                    let palette_index = ((d.data[long_index] & entry_mask) >> bit_index) as usize;
+                    if palette_index >= indirect.palette.len() {
+                        panic!("index out of bounds for indirect palette");
+                    }
+                    indirect.palette[palette_index].value() as u16
+                }
+            },
         }
     }
 }

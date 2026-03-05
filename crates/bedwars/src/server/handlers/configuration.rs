@@ -117,7 +117,7 @@ impl<Io: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static> ConfigurationHa
 
                 Err(e) => {
                     tracing::error!(%e, "error reading configuration message");
-                    break;
+                    continue;
                 }
             }
         }

@@ -13,3 +13,4 @@ thiserror = "2.0.18"
 tokio.workspace = true
 tracing = "0.1.44"
 uuid.workspace = true
+generated = { path = "../generated" }

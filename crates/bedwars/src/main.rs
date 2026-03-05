@@ -1,6 +1,11 @@
 use crate::{config::Config, registry::Registry, server::Server};
-use protocol::Identifier;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use generated::{Block, bedrock::Bedrock};
+use protocol::{Chunk, Identifier};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::net::TcpListener;
 
 mod config;
@@ -20,15 +25,15 @@ async fn main() -> color_eyre::Result<()> {
         ))
         .init();
 
+    let config = Arc::new(Config::load("config.toml")?);
+
     let registry = Arc::new(
         Registry::discover(
-            "/home/nullptr/bedwars/server/META-INF/versions/1.21.11/data",
+            Path::new(&config.generated.path).join("data"),
             registry::NECESSARY_REGISTRIES,
         )
         .await?,
     );
-
-    let config = Arc::new(Config::load("config.toml")?);
 
     let listener = TcpListener::bind(&config.network.bind_address).await?;
     let (tx, rx) = tokio::sync::mpsc::channel(100);

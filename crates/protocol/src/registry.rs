@@ -61,8 +61,6 @@ async fn read_registry<P: AsRef<Path>>(
         .join(&*identifier.namespace)
         .join(&*identifier.value);
 
-    tracing::info!(path = %path.display(), "reading registry data for identifier");
-
     let mut entries = tokio::fs::read_dir(path).await?;
 
     let mut data = RegistryData {

@@ -2,13 +2,15 @@ mod connection;
 mod handlers;
 pub mod msg;
 mod state;
+mod world;
 
 use crate::{
     config::Config,
     entity::{Entity, EntityData, allocator::EntityAllocator, player::PlayerEntity},
     registry::Registry,
-    server::{connection::Connection, msg::ServerMessage},
+    server::{connection::Connection, msg::ServerMessage, world::World},
 };
+use generated::{Block, bedrock};
 use protocol::{
     BitSet, Chunk, ChunkData, ChunkSection, Gamemode, HasData, HasDataKind, Identifier,
     PaletteFormat, PaletteFormatKind, PalettedContainer, TeleportFlags, VarInt, Writable,
@@ -37,6 +39,7 @@ pub struct Server<Io> {
     entities: HashMap<i32, Entity>,
     allocator: EntityAllocator,
     registry: Arc<Registry>,
+    world: World,
 }
 
 impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
@@ -56,6 +59,7 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
             clients: Vec::new(),
             allocator: EntityAllocator::new(),
             entities: HashMap::new(),
+            world: World::new(),
         }
     }
 
@@ -155,8 +159,14 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
 
         chunk_center.write_into(&mut conn.io).await?;
 
+        let bedrock = Block::Piston(generated::piston::Piston {
+            extended: generated::piston::Extended::True,
+            facing: generated::piston::Facing::Down,
+        });
+
         for x in -1..=1 {
             for y in -1..=1 {
+                let chunk = self.world.chunks.get(&(x, y)).unwrap();
                 let chunks =
                     ClientboundPlayMessage::ChunkDataAndUpdateLight(ChunkDataAndUpdateLight {
                         chunk_x: x,
@@ -164,22 +174,7 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
                         data: ChunkData {
                             block_entities: vec![],
                             heightmaps: vec![],
-                            data: Chunk {
-                                sections: vec![
-                                    ChunkSection {
-                                        block_count: 0,
-                                        block_states: PalettedContainer::new(
-                                            PaletteFormatKind::Blocks,
-                                            PaletteFormat::SingleValue(VarInt::new(0))
-                                        ),
-                                        biomes: PalettedContainer::new(
-                                            PaletteFormatKind::Biomes,
-                                            PaletteFormat::SingleValue(VarInt::new(0))
-                                        ),
-                                    };
-                                    24
-                                ],
-                            },
+                            data: chunk.clone(),
                         },
                         light: LightData {
                             block_light_arrays: vec![],
@@ -195,21 +190,33 @@ impl<Io: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static> Server<Io> {
             }
         }
 
-        // let mut buf = Vec::new();
-        // chunks.write_into(&mut buf).await?;
-        // use std::io::Write;
-        // std::fs::File::options()
-        //     .create(true)
-        //     .truncate(true)
-        //     .write(true)
-        //     .open("chunk_data.bin")?
-        //     .write_all(
-        //         buf.into_iter()
-        //             .map(|b| format!("0x{b:02X}"))
-        //             .collect::<Vec<_>>()
-        //             .join(" ")
-        //             .as_bytes(),
-        //     )?;
+        // for x in -1..=1 {
+        //     for z in -1..=1 {
+        //         let chunk = self.world.chunks.get(&(x, z)).unwrap();
+        //         let chunk_data =
+        //             ClientboundPlayMessage::ChunkDataAndUpdateLight(ChunkDataAndUpdateLight {
+        //                 chunk_x: x,
+        //                 chunk_z: z,
+        //                 data: ChunkData {
+        //                     block_entities: vec![],
+        //                     heightmaps: vec![],
+        //                     data: chunk.clone(),
+        //                 },
+        //                 light: LightData {
+        //                     block_light_arrays: vec![],
+        //                     block_light_mask: BitSet::empty(),
+        //                     empty_block_light_mask: BitSet::empty(),
+        //                     empty_sky_light_mask: BitSet::empty(),
+        //                     sky_light_arrays: vec![],
+        //                     sky_light_mask: BitSet::empty(),
+        //                 },
+        //             });
+
+        //         chunk_data.write_into(&mut conn.io).await?;
+        //     }
+        // }
+
+        sync.write_into(&mut conn.io).await?;
 
         self.clients.push(conn);
 

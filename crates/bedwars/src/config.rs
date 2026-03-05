@@ -9,7 +9,7 @@ use std::path::Path;
 pub struct Config {
     pub network: NetworkConfig,
     pub server: ServerConfig,
-    pub registry: RegistryConfig,
+    pub generated: GeneratedConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,7 +24,7 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RegistryConfig {
+pub struct GeneratedConfig {
     pub path: String,
 }
 

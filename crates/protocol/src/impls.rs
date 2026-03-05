@@ -24,7 +24,7 @@ macro_rules! num_impl {
                     writer: &mut W,
                 ) -> Result<(), crate::RwError> {
                     use ::tokio::io::AsyncWriteExt;
-                    writer.write_all(&self.to_le_bytes()).await?;
+                    writer.write_all(&self.to_be_bytes()).await?;
                     Ok(())
                 }
             }
